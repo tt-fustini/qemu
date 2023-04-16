@@ -86,4 +86,6 @@ DeviceState *riscv_cbqri_cc_create(hwaddr addr,
 DeviceState *riscv_cbqri_bc_create(hwaddr addr,
                                    const RiscvCbqriBandwidthCaps *caps,
                                    const char *target_name);
+
+void example_soc_cbqri_init(void);
 #endif
