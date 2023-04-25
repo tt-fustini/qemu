@@ -72,6 +72,7 @@ config RISCV_VIRT
     select ACPI
     select ACPI_PCI
     imply RISCV_CBQRI
+    imply CBQRI_EXAMPLE_SOC
 
 config SHAKTI_C
     bool
@@ -132,3 +133,7 @@ config XIANGSHAN_KUNMINGHU
     select RISCV_APLIC
     select RISCV_IMSIC
     select SERIAL_MM
+
+config CBQRI_EXAMPLE_SOC
+    bool
+    select RISCV_CBQRI
