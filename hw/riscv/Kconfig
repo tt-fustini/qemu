@@ -72,6 +72,7 @@ config RISCV_VIRT
     select ACPI
     select ACPI_PCI
     imply RISCV_CBQRI
+    imply CBQRI_EXAMPLE_SOC
 
 config SHAKTI_C
     bool
@@ -123,3 +124,7 @@ config SPIKE
     select HTIF
     select RISCV_ACLINT
     select SIFIVE_PLIC
+
+config CBQRI_EXAMPLE_SOC
+    bool
+    select RISCV_CBQRI
