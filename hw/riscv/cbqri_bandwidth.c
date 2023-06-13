@@ -384,6 +384,20 @@ static void riscv_cbqri_bc_write_bw_alloc(RiscvCbqriBandwidthState *bc,
     }
 }
 
+static void riscv_cbqri_bc_write_counter_quickhack(RiscvCbqriBandwidthState *bc,
+                                                   uint64_t value)
+{
+    uint32_t mcid = value & 0xfff;
+    if (mcid >= bc->nb_mcids) {
+        return;
+    }
+
+    if (bc->mon_counters[mcid].active) {
+        bc->mon_counters[mcid].ctr_val = value >> 12;
+    }
+}
+
+
 static void riscv_cbqri_bc_write(void *opaque, hwaddr addr,
                                  uint64_t value, unsigned size)
 {
@@ -393,6 +407,9 @@ static void riscv_cbqri_bc_write(void *opaque, hwaddr addr,
     assert(size == 8);
 
     switch (addr) {
+    case (4 * 1024 - 8):
+        riscv_cbqri_bc_write_counter_quickhack(bc, value);
+        break;
     case A_BC_CAPABILITIES:
         /* read-only register */
         break;
