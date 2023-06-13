@@ -373,6 +373,19 @@ static void riscv_cbqri_cc_write_alloc_ctl(RiscvCbqriCapacityState *cc,
     cc->cc_alloc_ctl = value;
 }
 
+static void riscv_cbqri_cc_write_counter_quickhack(RiscvCbqriCapacityState *cc,
+						   uint64_t value)
+{
+    uint32_t mcid = value & 0xfff;
+    if (mcid >= cc->nb_mcids) {
+        return;
+    }
+
+    if (cc->mon_counters[mcid].active) {
+        cc->mon_counters[mcid].ctr_val = value >> 12;
+    }
+}
+
 static void riscv_cbqri_cc_write(void *opaque, hwaddr addr,
                                  uint64_t value, unsigned size)
 {
@@ -382,6 +395,9 @@ static void riscv_cbqri_cc_write(void *opaque, hwaddr addr,
     assert(size == 8);
 
     switch (addr) {
+    case (4 * 1024 - 8):
+        riscv_cbqri_cc_write_counter_quickhack(cc, value);
+        break;
     case A_CC_CAPABILITIES:
         /* read-only register */
         break;
