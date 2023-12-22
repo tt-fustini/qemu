@@ -79,4 +79,16 @@ DeviceState *riscv_cbqri_cc_create(hwaddr addr,
 DeviceState *riscv_cbqri_bc_create(hwaddr addr,
                                    const RiscvCbqriBandwidthCaps *caps,
                                    const char *target_name);
+void example_soc_cbqri_init(void);
+
+typedef struct _RQSC {
+    u_int8_t controllerType;
+    u_int64_t mmio_base;
+    u_int16_t rcidCount;
+    u_int16_t mcidCount;
+} RQSC;
+
+void get_bc_details(DeviceState *ds, const char *type, RQSC *rqsc);
+void get_cc_details(DeviceState *ds, const char *type, RQSC *rqsc);
+
 #endif

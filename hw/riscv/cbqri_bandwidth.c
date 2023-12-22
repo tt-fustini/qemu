@@ -635,4 +635,15 @@ DeviceState *riscv_cbqri_bc_create(hwaddr addr,
     return dev;
 }
 
+void get_bc_details(DeviceState *ds, const char *type, RQSC *rqsc)
+{
+    if (strcmp(type, TYPE_RISCV_CBQRI_BC) == 0) {
+        RiscvCbqriBandwidthState *bcs = RISCV_CBQRI_BC(ds);
+        (rqsc)->controllerType = 1;
+        (rqsc)->mmio_base = bcs->mmio_base;
+        (rqsc)->rcidCount = bcs->nb_rcids;
+        (rqsc)->mcidCount = bcs->nb_mcids;
+    }
+}
+
 type_init(riscv_cbqri_bc_register_types)
