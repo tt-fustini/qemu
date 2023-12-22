@@ -29,7 +29,6 @@
 #include "target/riscv/cpu.h"
 #include "hw/riscv/cbqri.h"
 
-
 /* Encodings of `AT` field */
 enum {
     BC_AT_DATA = 0,
@@ -42,6 +41,8 @@ FIELD(BC_CAPABILITIES, VER, 0, 8);
 FIELD(BC_CAPABILITIES, VER_MINOR, 0, 4);
 FIELD(BC_CAPABILITIES, VER_MAJOR, 4, 4);
 FIELD(BC_CAPABILITIES, NBWBLKS, 8, 16);
+FIELD(BC_CAPABILITIES, RPFX, 24, 1);
+FIELD(BC_CAPABILITIES, P, 25, 3);
 FIELD(BC_CAPABILITIES, MRBWB, 32, 16);
 
 /* Usage monitoring control */
@@ -150,6 +151,9 @@ typedef struct RiscvCbqriBandwidthState {
 
     uint16_t nbwblks;
     uint16_t mrbwb;
+
+    bool rpfx;
+    uint8_t p;
 
     bool supports_at_data;
     bool supports_at_code;
@@ -446,6 +450,10 @@ static uint64_t riscv_cbqri_bc_read(void *opaque, hwaddr addr, unsigned size)
                            RISCV_CBQRI_VERSION_MAJOR);
         value = FIELD_DP64(value, BC_CAPABILITIES, VER_MINOR,
                            RISCV_CBQRI_VERSION_MINOR);
+        value = FIELD_DP64(value, BC_CAPABILITIES, RPFX, 
+                           bc->rpfx);
+        value = FIELD_DP64(value, BC_CAPABILITIES, P, 
+                           bc->p);
         value = FIELD_DP64(value, BC_CAPABILITIES, NBWBLKS,
                            bc->nbwblks);
         value = FIELD_DP64(value, BC_CAPABILITIES, MRBWB,
@@ -526,6 +534,9 @@ static Property riscv_cbqri_bc_properties[] = {
     DEFINE_PROP_UINT16("nbwblks", RiscvCbqriBandwidthState, nbwblks, 1024),
     DEFINE_PROP_UINT16("mrbwb", RiscvCbqriBandwidthState, mrbwb, 819),
 
+    DEFINE_PROP_BOOL("rpfx", RiscvCbqriBandwidthState, rpfx, true),
+    DEFINE_PROP_UINT8("p", RiscvCbqriBandwidthState, p, 3),
+
     DEFINE_PROP_BOOL("at_data", RiscvCbqriBandwidthState,
                      supports_at_data, true),
     DEFINE_PROP_BOOL("at_code", RiscvCbqriBandwidthState,
@@ -560,6 +571,8 @@ static void riscv_cbqri_bc_class_init(ObjectClass *klass, void *data)
     device_class_set_props(dc, riscv_cbqri_bc_properties);
     dc->legacy_reset = riscv_cbqri_bc_reset;
     dc->user_creatable = true;
+
+    info_report("%s", __func__);
 }
 
 static const TypeInfo riscv_cbqri_bc_info = {
@@ -580,12 +593,18 @@ DeviceState *riscv_cbqri_bc_create(hwaddr addr,
 {
     DeviceState *dev = qdev_new(TYPE_RISCV_CBQRI_BC);
 
+    info_report("%s: target: %s\ncaps:\n  mmio_base: 0x%lx\n  p: %d\nrpfx: %d",
+                        __func__, target_name, (uint64_t)addr, caps->p, caps->rpfx);
+
     qdev_prop_set_uint64(dev, "mmio_base", addr);
     qdev_prop_set_string(dev, "target", target_name);
     qdev_prop_set_uint16(dev, "max_mcids", caps->nb_mcids);
     qdev_prop_set_uint16(dev, "max_rcids", caps->nb_rcids);
     qdev_prop_set_uint16(dev, "nbwblks", caps->nbwblks);
+    qdev_prop_set_uint8(dev, "p", caps->p);
 
+    qdev_prop_set_bit(dev, "rpfx",
+                      caps->rpfx);
     qdev_prop_set_bit(dev, "at_data",
                       caps->supports_at_data);
     qdev_prop_set_bit(dev, "at_code",
@@ -610,6 +629,18 @@ DeviceState *riscv_cbqri_bc_create(hwaddr addr,
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
 
     return dev;
+}
+
+void get_bc_details(DeviceState *ds, const char *type, RQSC *rqsc)
+{
+    if (strcmp(type, TYPE_RISCV_CBQRI_BC) == 0)
+    {
+        RiscvCbqriBandwidthState *bcs = RISCV_CBQRI_BC(ds);
+        (rqsc)->controllerType = 1;
+        (rqsc)->mmio_base = bcs->mmio_base;
+        (rqsc)->rcidCount = bcs->nb_rcids;
+        (rqsc)->mcidCount = bcs->nb_mcids;
+    }
 }
 
 type_init(riscv_cbqri_bc_register_types)

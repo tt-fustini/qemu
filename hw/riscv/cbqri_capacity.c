@@ -625,4 +625,16 @@ DeviceState *riscv_cbqri_cc_create(hwaddr addr,
     return dev;
 }
 
+void get_cc_details(DeviceState *ds, const char *type, RQSC *rqsc)
+{
+    if (strcmp(type, TYPE_RISCV_CBQRI_CC) == 0)
+    {
+        RiscvCbqriCapacityState *ccs = RISCV_CBQRI_CC(ds);
+        rqsc->controllerType = 0;
+        rqsc->mmio_base = ccs->mmio_base;
+        rqsc->rcidCount = ccs->nb_rcids;
+        rqsc->mcidCount = ccs->nb_mcids;
+    }
+}
+
 type_init(riscv_cbqri_cc_register_types)

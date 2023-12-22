@@ -34,6 +34,7 @@
 #include "hw/pci-host/gpex.h"
 #include "hw/riscv/virt.h"
 #include "hw/riscv/numa.h"
+#include "hw/riscv/cbqri.h"
 #include "hw/virtio/virtio-acpi.h"
 #include "migration/vmstate.h"
 #include "qapi/error.h"
@@ -242,6 +243,79 @@ spcr_setup(GArray *table_data, BIOSLinker *linker, RISCVVirtState *s)
 
 /* RHCT Node[N] starts at offset 56 */
 #define RHCT_NODE_ARRAY_OFFSET 56
+u_int8_t gatherCbqriDetails(RISCVVirtState *vs, RQSC rqsc[]);
+
+u_int8_t gatherCbqriDetails(RISCVVirtState *vs, RQSC rqsc[])
+{
+    BusChild *bc = NULL;
+    DeviceState *ds = NULL;
+    u_int8_t controllerCount = 0;
+
+    if (vs == NULL) {
+        printf("RISCVVirtState is NULL\n");
+        return 0;
+    }
+
+    QTAILQ_FOREACH(bc, &vs->platform_bus_dev->parent_bus->children, sibling) {
+        if (strcmp(object_get_typename(OBJECT(bc->child)), TYPE_RISCV_CBQRI_BC) == 0)
+        {
+            ds = bc->child;
+            get_bc_details(ds, object_get_typename(OBJECT(bc->child)), &(rqsc[controllerCount]));
+            controllerCount++;
+        }
+        if (strcmp(object_get_typename(OBJECT(bc->child)), TYPE_RISCV_CBQRI_CC) == 0)
+        {
+            ds = bc->child;
+            get_cc_details(ds, object_get_typename(OBJECT(bc->child)), &(rqsc[controllerCount]));
+            controllerCount++;
+        }
+    }
+
+    return controllerCount;
+}
+
+/*
+ *
+ * RQSC Table
+ *
+ */
+static void build_rqsc(GArray *table_data,
+                       BIOSLinker *linker,
+                       RISCVVirtState *s)
+{
+    int numCbqriControllers = 0;
+    RQSC rqsc[10];                  /* Support for upto 10 CBQRI controllers */
+    int i = 0;
+
+    AcpiTable table = { .sig = "RQSC", .rev = 0, .oem_id = s->oem_id,
+                        .oem_table_id = s->oem_table_id };
+
+    acpi_table_begin(&table, table_data);
+
+    numCbqriControllers = gatherCbqriDetails(s, rqsc);
+
+    build_append_int_noprefix(table_data, numCbqriControllers, 4);	/* Number of QoS Controllers */
+
+    for (i = 0; i < numCbqriControllers; i++)
+    {
+        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);  /* Controller Type */
+        build_append_int_noprefix(table_data, 0, 1);                        /* Reserved */
+        build_append_int_noprefix(table_data, 32, 2);                       /* Length */
+        build_append_gas(table_data, 
+                AML_AS_SYSTEM_MEMORY, 
+                0,
+                0,
+                4,
+                rqsc[i].mmio_base);                                           /* Controller register interface address */
+        build_append_int_noprefix(table_data, 0, 3);                        /* Reserved */
+        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);  /* Resource Type  - Setting to the same as Controller Type for now */
+        build_append_int_noprefix(table_data, 0, 4);                        /* Resource ID - TBD - Need to fill in based on PPTT and SRAT info */
+        build_append_int_noprefix(table_data, rqsc[i].rcidCount, 4);       /* RCID Count */
+        build_append_int_noprefix(table_data, rqsc[i].mcidCount, 4);       /* MCID Count */
+    }
+
+    acpi_table_end(linker, &table);
+}
 
 /*
  * ACPI spec, Revision 6.5+
@@ -681,6 +755,8 @@ static void virt_acpi_build(RISCVVirtState *s, AcpiBuildTables *tables)
 
     acpi_add_table(table_offsets, tables_blob);
     spcr_setup(tables_blob, tables->linker, s);
+
+    build_rqsc(tables_blob, tables->linker, s);
 
     acpi_add_table(table_offsets, tables_blob);
     {

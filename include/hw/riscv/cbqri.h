@@ -57,6 +57,9 @@ typedef struct RiscvCbqriBandwidthCaps {
     uint16_t nbwblks;
     uint16_t mrbwb;
 
+    uint8_t p;
+    bool rpfx:1;
+
     bool supports_at_data:1;
     bool supports_at_code:1;
 
@@ -80,4 +83,16 @@ DeviceState *riscv_cbqri_bc_create(hwaddr addr,
                                    const char *target_name);
 
 void example_soc_cbqri_init(void);
+
+typedef struct _RQSC 
+{
+    u_int8_t controllerType;
+    u_int64_t mmio_base;
+    u_int16_t rcidCount;
+    u_int16_t mcidCount;
+} RQSC;
+
+void get_bc_details(DeviceState *ds, const char *type, RQSC *rqsc);
+void get_cc_details(DeviceState *ds, const char *type, RQSC *rqsc);
+
 #endif
