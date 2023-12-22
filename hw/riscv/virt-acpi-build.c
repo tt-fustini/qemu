@@ -34,6 +34,7 @@
 #include "hw/pci-host/gpex.h"
 #include "hw/riscv/virt.h"
 #include "hw/riscv/numa.h"
+#include "hw/riscv/cbqri.h"
 #include "hw/virtio/virtio-acpi.h"
 #include "migration/vmstate.h"
 #include "qapi/error.h"
@@ -268,6 +269,119 @@ spcr_setup(GArray *table_data, BIOSLinker *linker, RISCVVirtState *s)
 
 /* RHCT Node[N] starts at offset 56 */
 #define RHCT_NODE_ARRAY_OFFSET 56
+
+static u_int8_t gatherCbqriDetails(RISCVVirtState *vs, RQSC rqsc[])
+{
+    BusChild *bc = NULL;
+    DeviceState *ds = NULL;
+    u_int8_t controllerCount = 0;
+
+    if (vs == NULL) {
+        printf("RISCVVirtState is NULL\n");
+        return 0;
+    }
+
+    QTAILQ_FOREACH(bc, &vs->platform_bus_dev->parent_bus->children, sibling) {
+        if (strcmp(object_get_typename(OBJECT(bc->child)),
+                   TYPE_RISCV_CBQRI_BC) == 0)
+        {
+            ds = bc->child;
+            get_bc_details(ds, object_get_typename(OBJECT(bc->child)),
+                           &(rqsc[controllerCount]));
+            controllerCount++;
+        }
+        if (strcmp(object_get_typename(OBJECT(bc->child)),
+                   TYPE_RISCV_CBQRI_CC) == 0)
+        {
+            ds = bc->child;
+            get_cc_details(ds, object_get_typename(OBJECT(bc->child)),
+                           &(rqsc[controllerCount]));
+            controllerCount++;
+        }
+    }
+
+    return controllerCount;
+}
+
+/*
+ *
+ * RQSC Table
+ *
+ */
+static void build_rqsc(GArray *table_data,
+                       BIOSLinker *linker,
+                       RISCVVirtState *s)
+{
+    int numCbqriControllers = 0;
+    /* Support for upto 10 CBQRI controllers */
+    RQSC rqsc[10];
+    int i = 0;
+
+    AcpiTable table = { .sig = "RQSC", .rev = 0, .oem_id = s->oem_id,
+                        .oem_table_id = s->oem_table_id };
+
+    acpi_table_begin(&table, table_data);
+
+    numCbqriControllers = gatherCbqriDetails(s, rqsc);
+
+    /* Number of QoS Controllers */
+    build_append_int_noprefix(table_data, numCbqriControllers, 4);
+
+    for (i = 0; i < numCbqriControllers; i++) {
+        /* Controller Type */
+        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);
+        /* Reserved */
+        build_append_int_noprefix(table_data, 0, 1);
+        /* Length */
+        build_append_int_noprefix(table_data, 24 /* ctrl */ + 20 /* res */, 2);
+        /* Controller register interface address */
+        build_append_gas(table_data,
+                AML_AS_SYSTEM_MEMORY,
+                0,
+                0,
+                4,
+                rqsc[i].mmio_base);
+        /* RCID Count */
+        build_append_int_noprefix(table_data, rqsc[i].rcidCount, 2);
+        /* MCID Count */
+        build_append_int_noprefix(table_data, rqsc[i].mcidCount, 2);
+        /* Controller Flags*/
+        build_append_int_noprefix(table_data, 0, 2);
+        /* Number of Resources hard coded to 1 for QEMU */
+        build_append_int_noprefix(table_data, 1, 2);
+
+        /* Resource Structure per Controller */
+        /* Resource Type  - Setting to the same as Controller Type for now */
+        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);
+        /* Reserved */
+        build_append_int_noprefix(table_data, 0, 1);
+        /* Length of Resource Structure */
+        build_append_int_noprefix(table_data, 20, 2);
+        /* Resource Flags */
+        build_append_int_noprefix(table_data, 0, 2);
+        /* Reserved */
+        build_append_int_noprefix(table_data, 0, 1);
+        /* Resource ID Type  - Setting to the same as Controller Type for now */
+        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);
+        /*
+         * Derive a resource ID from the mmio_base page offset so the RQSC
+         * table resource IDs match the CPUCacheInfo IDs used in the PPTT table.
+         *
+         * TODO: Similar plumbing still needs to be done to correlate
+         * the memory controller to Proximity Domain in the SRAT table
+         */
+        uint64_t offset = rqsc[i].mmio_base & 0x000F000;
+        uint64_t id = (offset >> 12) + 0x40;
+        /* Resource ID 1 DWORD 1 CacheID or Proximity Domain */
+        build_append_int_noprefix(table_data, id, 4);
+        /* Resource ID 1 DWORD 2 Reserved */
+        build_append_int_noprefix(table_data, 0x00, 4);
+        /* Resrouce ID 2 */
+        build_append_int_noprefix(table_data, 0x00, 4);
+    }
+
+    acpi_table_end(linker, &table);
+}
 
 /*
  * ACPI spec, Revision 6.6
@@ -893,6 +1007,9 @@ static void virt_acpi_build(RISCVVirtState *s, AcpiBuildTables *tables)
     if (ms->acpi_spcr_enabled) {
         spcr_setup(tables_blob, tables->linker, s);
     }
+
+    acpi_add_table(table_offsets, tables_blob);
+    build_rqsc(tables_blob, tables->linker, s);
 
     acpi_add_table(table_offsets, tables_blob);
     {
