@@ -3,6 +3,7 @@
 
 #include "hw/acpi/acpi-defs.h"
 #include "hw/acpi/bios-linker-loader.h"
+#include "include/hw/core/cpu.h"
 
 #define ACPI_BUILD_APPNAME6 "BOCHS "
 #define ACPI_BUILD_APPNAME8 "BXPC    "
@@ -234,6 +235,23 @@ struct CrsRangeSet {
     GPtrArray *mem_64bit_ranges;
 } CrsRangeSet;
 
+typedef
+struct CPUCacheInfo {
+    enum CacheType type;      /* Cache Type*/
+    uint32_t size;            /* Size of the cache in bytes */
+    uint32_t sets;            /* Number of sets in the cache */
+    uint8_t associativity;    /* Cache associativity */
+    uint8_t attributes;       /* Cache attributes */
+    uint16_t line_size;       /* Line size in bytes */
+} CPUCacheInfo;
+
+typedef
+struct CPUCaches {
+        CPUCacheInfo *l1d_cache;
+        CPUCacheInfo *l1i_cache;
+        CPUCacheInfo *l2_cache;
+        CPUCacheInfo *l3_cache;
+} CPUCaches;
 
 /*
  * ACPI 5.0: 6.4.3.8.2 Serial Bus Connection Descriptors
@@ -499,7 +517,8 @@ void build_slit(GArray *table_data, BIOSLinker *linker, MachineState *ms,
                 const char *oem_id, const char *oem_table_id);
 
 void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
-                const char *oem_id, const char *oem_table_id);
+                const char *oem_id, const char *oem_table_id,
+                const CPUCaches *CPUCaches);
 
 void build_fadt(GArray *tbl, BIOSLinker *linker, const AcpiFadtData *f,
                 const char *oem_id, const char *oem_table_id);
