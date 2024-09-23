@@ -294,11 +294,11 @@ static void build_rqsc(GArray *table_data,
 
     numCbqriControllers = gatherCbqriDetails(s, rqsc);
 
-    build_append_int_noprefix(table_data, numCbqriControllers, 4);	/* Number of QoS Controllers */
+    build_append_int_noprefix(table_data, numCbqriControllers, 4);	        /* Number of QoS Controllers */
 
     for (i = 0; i < numCbqriControllers; i++)
     {
-        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);  /* Controller Type */
+        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);   /* Controller Type */
         build_append_int_noprefix(table_data, 0, 1);                        /* Reserved */
         build_append_int_noprefix(table_data, 32, 2);                       /* Length */
         build_append_gas(table_data, 
@@ -306,12 +306,22 @@ static void build_rqsc(GArray *table_data,
                 0,
                 0,
                 4,
-                rqsc[i].mmio_base);                                           /* Controller register interface address */
-        build_append_int_noprefix(table_data, 0, 3);                        /* Reserved */
-        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);  /* Resource Type  - Setting to the same as Controller Type for now */
-        build_append_int_noprefix(table_data, 0, 4);                        /* Resource ID - TBD - Need to fill in based on PPTT and SRAT info */
-        build_append_int_noprefix(table_data, rqsc[i].rcidCount, 4);       /* RCID Count */
-        build_append_int_noprefix(table_data, rqsc[i].mcidCount, 4);       /* MCID Count */
+                rqsc[i].mmio_base);                                         /* Controller register interface address */
+        build_append_int_noprefix(table_data, rqsc[i].rcidCount, 4);        /* RCID Count */
+        build_append_int_noprefix(table_data, rqsc[i].mcidCount, 4);        /* MCID Count */
+        build_append_int_noprefix(table_data, 0, 2);                        /* Controller Flags*/
+        build_append_int_noprefix(table_data, 1, 2);                        /* Number of Resources hard coded to 1 for QEMU */
+
+        /* Resource Structure per Controller */
+        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);   /* Resource Type  - Setting to the same as Controller Type for now */
+        build_append_int_noprefix(table_data, 0, 1);                        /* Reserved */
+        build_append_int_noprefix(table_data, 20, 2);                       /* Length of Resource Structure */
+        build_append_int_noprefix(table_data, 0, 2);                        /* Resource Flags */
+        build_append_int_noprefix(table_data, 0, 1);                        /* Reserved */
+        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);   /* Resource ID Type  - Setting to the same as Controller Type for now */
+        build_append_int_noprefix(table_data, 0, 4);                        /* Resource ID 1 DWORD 1 CacheID or Proximity Domain. TODO: Parameterize this */
+        build_append_int_noprefix(table_data, 0, 4);                        /* Resource ID 1 DWORD 2 Reserved */
+        build_append_int_noprefix(table_data, 0, 4);                        /* Resrouce ID 2 */
     }
 
     acpi_table_end(linker, &table);
@@ -756,6 +766,7 @@ static void virt_acpi_build(RISCVVirtState *s, AcpiBuildTables *tables)
     acpi_add_table(table_offsets, tables_blob);
     spcr_setup(tables_blob, tables->linker, s);
 
+    acpi_add_table(table_offsets, tables_blob);
     build_rqsc(tables_blob, tables->linker, s);
 
     acpi_add_table(table_offsets, tables_blob);
