@@ -390,6 +390,7 @@ static void riscv_cbqri_cc_write(void *opaque, hwaddr addr,
                                  uint64_t value, unsigned size)
 {
     RiscvCbqriCapacityState *cc = opaque;
+    uint32_t blkmask_slot;
 
     assert((addr % 8) == 0);
     assert(size == 8);
@@ -416,7 +417,7 @@ static void riscv_cbqri_cc_write(void *opaque, hwaddr addr,
         }
         /* fallthrough */
     default:
-        uint32_t blkmask_slot = (addr - A_CC_BLOCK_MASK) / 8;
+        blkmask_slot = (addr - A_CC_BLOCK_MASK) / 8;
         if (blkmask_slot >= (cc->ncblks + 63) / 64) {
             qemu_log_mask(LOG_GUEST_ERROR,
                           "%s: out of bounds (addr=0x%x)",
