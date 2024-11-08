@@ -435,6 +435,7 @@ static void riscv_cbqri_bc_write(void *opaque, hwaddr addr,
 static uint64_t riscv_cbqri_bc_read(void *opaque, hwaddr addr, unsigned size)
 {
     RiscvCbqriBandwidthState *bc = opaque;
+    BandwidthAllocation *bc_bw_alloc;
     uint64_t value = 0;
 
     assert((addr % 8) == 0);
@@ -461,7 +462,7 @@ static uint64_t riscv_cbqri_bc_read(void *opaque, hwaddr addr, unsigned size)
         value = bc->bc_alloc_ctl;
         break;
     case A_BC_BW_ALLOC:
-        BandwidthAllocation *bc_bw_alloc = &bc->bw_allocations[0];
+        bc_bw_alloc = &bc->bw_allocations[0];
         value = FIELD_DP64(value, BC_BW_ALLOC, Rbwb, bc_bw_alloc->Rbwb);
         value = FIELD_DP64(value, BC_BW_ALLOC, Mweight, bc_bw_alloc->Mweight);
         value = FIELD_DP64(value, BC_BW_ALLOC, sharedAT, bc_bw_alloc->sharedAT);
