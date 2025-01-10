@@ -136,6 +136,7 @@ struct RISCVCPUConfig {
     bool ext_smctr;
     bool ext_ssctr;
     bool ext_sscofpmf;
+    bool ext_ssqosid;
     bool ext_smepmp;
     bool ext_smrnmi;
     bool ext_ssnpm;
