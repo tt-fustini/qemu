@@ -287,6 +287,7 @@ static void build_rqsc(GArray *table_data,
     RQSC rqsc[10];                  /* Support for upto 10 CBQRI controllers */
     int i = 0;
 
+    fprintf(stderr, "[QEMU] build_rqsc: enter\n");
     AcpiTable table = { .sig = "RQSC", .rev = 0, .oem_id = s->oem_id,
                         .oem_table_id = s->oem_table_id };
 
@@ -298,6 +299,7 @@ static void build_rqsc(GArray *table_data,
 
     for (i = 0; i < numCbqriControllers; i++)
     {
+    	fprintf(stderr, "[QEMU] rqsc[i].controllerType = %d\n", rqsc[i].controllerType);
         build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);   /* Controller Type */
         build_append_int_noprefix(table_data, 0, 1);                        /* Reserved */
         build_append_int_noprefix(table_data, 32, 2);                       /* Length */
