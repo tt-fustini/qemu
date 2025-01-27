@@ -287,6 +287,7 @@ static void build_rqsc(GArray *table_data,
     int numCbqriControllers = 0;
     RQSC rqsc[10];                  /* Support for upto 10 CBQRI controllers */
     int i = 0;
+    int res1_id;
 
     AcpiTable table = { .sig = "RQSC", .rev = 0, .oem_id = s->oem_id,
                         .oem_table_id = s->oem_table_id };
@@ -295,6 +296,7 @@ static void build_rqsc(GArray *table_data,
 
     numCbqriControllers = gatherCbqriDetails(s, rqsc);
 
+    fprintf(stderr, "[QEMU] %s(): Number of CBQRI Controllers: %d\n", __func__, numCbqriControllers);
     build_append_int_noprefix(table_data, numCbqriControllers, 4);	        /* Number of QoS Controllers */
 
     for (i = 0; i < numCbqriControllers; i++)
@@ -320,9 +322,21 @@ static void build_rqsc(GArray *table_data,
         build_append_int_noprefix(table_data, 0, 2);                        /* Resource Flags */
         build_append_int_noprefix(table_data, 0, 1);                        /* Reserved */
         build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);   /* Resource ID Type  - Setting to the same as Controller Type for now */
-        build_append_int_noprefix(table_data, 0, 4);                        /* Resource ID 1 DWORD 1 CacheID or Proximity Domain. TODO: Parameterize this */
+        /*
+         * Hardcode all controllers with type capacity to have resource type
+         * of cache and resource 1 ID type of cache. Use the controller mmio
+         * base as the resource 1 ID as the AML code that generates that PPTT
+         * table uses the cache controller mmio_base address as the cache ID.
+         */
+        if( rqsc[i].controllerType == 0 /* capacity */ ) {
+            res1_id = rqsc[i].mmio_base;
+        } else {
+            res1_id = i;
+        }
+        build_append_int_noprefix(table_data, res1_id, 4);                  /* Resource ID 1 DWORD 1 */
         build_append_int_noprefix(table_data, 0, 4);                        /* Resource ID 1 DWORD 2 Reserved */
         build_append_int_noprefix(table_data, 0, 4);                        /* Resrouce ID 2 */
+        fprintf(stderr, "[QEMU] %s(): adding controller %d with type %d and resource 1 ID %d\n", __func__, i, rqsc[i].controllerType, res1_id);
     }
 
     acpi_table_end(linker, &table);
@@ -747,6 +761,7 @@ static void pptt_setup(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             .associativity = 4,
             .sets = 256,
             .attributes = 0x02,
+            .id = 0x1D,
         },
         .l1i_cache = &(CPUCacheInfo) {
             .type = INSTRUCTION_CACHE,
@@ -755,22 +770,39 @@ static void pptt_setup(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             .associativity = 4,
             .sets = 256,
             .attributes = 0x04,
+            .id = 0x1E,
         },
-        .l2_cache = &(CPUCacheInfo) {
+
+        /*
+         * Match properties in the device tree nodes
+         * https://lore.kernel.org/linux-riscv/20230419111111.477118-1-dfustini@baylibre.com/
+         */
+        .l2_cluster1_cache = &(CPUCacheInfo) {
             .type = UNIFIED_CACHE,
-            .size = 2048 * KiB,
+            .size = 750 * KiB,
             .line_size = 64,
-            .associativity = 8,
-            .sets = 4096,
+            .associativity = 12,
+            .sets = 1000,
             .attributes = 0x0a,
+            .id = 0x4821000,
+        },
+        .l2_cluster2_cache = &(CPUCacheInfo) {
+            .type = UNIFIED_CACHE,
+            .size = 750 * KiB,
+            .line_size = 64,
+            .associativity = 12,
+            .sets = 1000,
+            .attributes = 0x0a,
+            .id = 0x4820000,
         },
         .l3_cache = &(CPUCacheInfo) {
             .type = UNIFIED_CACHE,
-            .size = 4096 * KiB,
+            .size = 3 * MiB,
             .line_size = 64,
-            .associativity = 8,
-            .sets = 8192,
+            .associativity = 16,
+            .sets = 4096,
             .attributes = 0x0a,
+            .id = 0x482b000,
         },
     };
 
@@ -810,11 +842,11 @@ static void virt_acpi_build(RISCVVirtState *s, AcpiBuildTables *tables)
     spcr_setup(tables_blob, tables->linker, s);
 
     acpi_add_table(table_offsets, tables_blob);
-    build_rqsc(tables_blob, tables->linker, s);
-
-    acpi_add_table(table_offsets, tables_blob);
     pptt_setup(tables_blob, tables->linker, ms,
                s->oem_id, s->oem_table_id);
+
+    acpi_add_table(table_offsets, tables_blob);
+    build_rqsc(tables_blob, tables->linker, s);
 
     acpi_add_table(table_offsets, tables_blob);
     {
