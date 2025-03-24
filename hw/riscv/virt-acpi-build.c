@@ -1074,11 +1074,11 @@ static void virt_acpi_build(RISCVVirtState *s, AcpiBuildTables *tables)
     }
 
     acpi_add_table(table_offsets, tables_blob);
-    build_rqsc(tables_blob, tables->linker, s);
-
-    acpi_add_table(table_offsets, tables_blob);
     pptt_setup(tables_blob, tables->linker, ms,
                s->oem_id, s->oem_table_id);
+
+    acpi_add_table(table_offsets, tables_blob);
+    build_rqsc(tables_blob, tables->linker, s);
 
     acpi_add_table(table_offsets, tables_blob);
     {
