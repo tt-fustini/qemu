@@ -243,13 +243,15 @@ struct CPUCacheInfo {
     uint8_t associativity;    /* Cache associativity */
     uint8_t attributes;       /* Cache attributes */
     uint16_t line_size;       /* Line size in bytes */
+    uint32_t id;              /* Cache ID - added in ACPI 6.4 */
 } CPUCacheInfo;
 
 typedef
 struct CPUCaches {
         CPUCacheInfo *l1d_cache;
         CPUCacheInfo *l1i_cache;
-        CPUCacheInfo *l2_cache;
+        CPUCacheInfo *l2_cluster1_cache;
+        CPUCacheInfo *l2_cluster2_cache;
         CPUCacheInfo *l3_cache;
 } CPUCaches;
 
