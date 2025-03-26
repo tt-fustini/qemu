@@ -2148,12 +2148,16 @@ static void build_cache_structure(GArray *tbl,
 {
     /* Cache type structure */
     build_append_byte(tbl, 1);
-    /* Length */
-    build_append_byte(tbl, 24);
+    /*
+     * Length - ACPI 6.4 table 5.140 shows size 28 which increased from
+     * previous version to include space for the new cache id property
+     * https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html#cache-type-structure-table
+     */
+    build_append_byte(tbl, 28);
     /* Reserved */
     build_append_int_noprefix(tbl, 0, 2);
-    /* Flags */
-    build_append_int_noprefix(tbl, 0x7f, 4);
+    /* Flags - enable bit 7 for Cache ID Valid */
+    build_append_int_noprefix(tbl, 0xff, 4);
     /* Next level cache */
     build_append_int_noprefix(tbl, next_level, 4);
     /* Size */
@@ -2166,6 +2170,8 @@ static void build_cache_structure(GArray *tbl,
     build_append_byte(tbl, cache_info->attributes);
     /* Line size */
     build_append_int_noprefix(tbl, cache_info->line_size, 2);
+    /* Cache ID */
+    build_append_int_noprefix(tbl, cache_info->id, 4);
 }
 
 /*
@@ -2183,9 +2189,13 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
     uint32_t pptt_start = table_data->len;
     uint32_t root_offset;
     uint32_t l3_offset = 0, priv_num = 0;
-    uint32_t priv_rsrc[3] = {0};
+    uint32_t priv_rsrc[4] = {0};
     int n;
-    AcpiTable table = { .sig = "PPTT", .rev = 2,
+    /*
+     * rev should 3 not 2 based on
+     * https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html#processor-properties-topology-table-pptt
+     */
+    AcpiTable table = { .sig = "PPTT", .rev = 3,
                         .oem_id = oem_id, .oem_table_id = oem_table_id };
 
     acpi_table_begin(&table, table_data);
@@ -2209,6 +2219,16 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
      * created.
      */
     for (n = 0; n < cpus->len; n++) {
+        /*
+         * HACK: cluster_id is not set by the riscv arch so force setting it.
+         * Divide the cores between the number of clusters. For the CBQRI
+         * example, cores 0-3 are cluster 0 and cores 4-8 are cluster 1.
+         * The correct solution is for the riscv code to set cluster_id the
+         * same way the arm code is doing it.
+         */
+        cpus->cpus[n].props.cluster_id = (n / (ms->smp.cores * ms->smp.threads))
+                                          % ms->smp.clusters;
+
         if (cpus->cpus[n].props.socket_id != socket_id) {
             assert(cpus->cpus[n].props.socket_id > socket_id);
             socket_id = cpus->cpus[n].props.socket_id;
@@ -2250,7 +2270,25 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
         if (CPUCaches) {
             /* L2 cache type structure */
             priv_rsrc[0] = table_data->len - pptt_start;
-            build_cache_structure(table_data, 0, CPUCaches->l2_cache);
+
+            /*
+             * HACK: cluster 0 uses the first L2 cache controller and
+             * cluster 1 uses the second L2 cache controller. A more
+             * general solution is to make the L2 cache private to
+             * the cluster and not private to the core.
+             *
+             * This series seems to be the correct direction:
+             * https://lore.kernel.org/all/20250310162337.844-1-alireza.sanaee@huawei.com/
+             * but it is only adding support for ARM so it needs to
+             * be broaden to support RISC-V too
+             */
+            if (cluster_id == 0) {
+                build_cache_structure(table_data, l3_offset,
+                                      CPUCaches->l2_cluster1_cache);
+            } else {
+                build_cache_structure(table_data, l3_offset,
+                                      CPUCaches->l2_cluster2_cache);
+            }
 
             /* L1d cache type structure */
             priv_rsrc[1] = table_data->len - pptt_start;
@@ -2261,14 +2299,13 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             priv_rsrc[2] = table_data->len - pptt_start;
             build_cache_structure(table_data, priv_rsrc[0],
                                   CPUCaches->l1i_cache);
-
-            priv_num = 3;
+            priv_num = 2;
         }
         if (ms->smp.threads == 1) {
             build_processor_hierarchy_node(table_data,
                 (1 << 1) | /* ACPI Processor ID valid */
                 (1 << 3),  /* Node is a Leaf */
-                cluster_offset, n, priv_rsrc, priv_num);
+                cluster_offset, n, &priv_rsrc[1], priv_num);
         } else {
             if (cpus->cpus[n].props.core_id != core_id) {
                 assert(cpus->cpus[n].props.core_id > core_id);
