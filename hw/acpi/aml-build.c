@@ -2057,7 +2057,7 @@ static void build_processor_hierarchy_node(GArray *tbl, uint32_t flags,
 {
     int i;
 
-    fprintf(stderr, "[QEMU] %s(): flags:0x%x parent:0x%x id:0x%x priv_num=%u\n",
+    fprintf(stderr, "[QEMU] \t %s(): flags:0x%x parent:0x%x id:0x%x priv_num=%u \n",
             __func__, flags, parent, id, priv_num);
 
     build_append_byte(tbl, 0);                 /* Type 0 - processor */
@@ -2074,6 +2074,7 @@ static void build_processor_hierarchy_node(GArray *tbl, uint32_t flags,
     if (priv_num > 0) {
         assert(priv_rsrc);
         for (i = 0; i < priv_num; i++) {
+            fprintf(stderr, "[QEMU] \t %s(): append private resource priv_rsrc[%d]: 0x%x \n", __func__, i, priv_rsrc[i]);
             build_append_int_noprefix(tbl, priv_rsrc[i], 4);
         }
     }
@@ -2150,7 +2151,7 @@ static void build_cache_structure(GArray *tbl,
                                   uint32_t next_level,
                                   CPUCacheInfo *cache_info)
 {
-    fprintf(stderr, "[QEMU] %s(): cache_info->id = 0x%x\n", __func__, cache_info->id);
+    fprintf(stderr, "[QEMU] \t %s(): cache_info->id = 0x%x  next_level = 0x%x \n", __func__, cache_info->id, next_level);
     /* Cache type structure */
     build_append_byte(tbl, 1);
     /*
@@ -2210,6 +2211,8 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
      * created.
      */
     for (n = 0; n < cpus->len; n++) {
+        fprintf(stderr, "[QEMU] %s(): cpu = %d: cluster_id = %lu <------------------------------------------------------\n",
+                __func__, n, cpus->cpus[n].props.cluster_id);
         /*
          * HACK: cluster_id is not set by the riscv arch so force setting it.
          * Divide the cores between the number of clusters. For the CBQRI
@@ -2226,6 +2229,7 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             core_id = -1;
             priv_num = 0;
             socket_offset = table_data->len - pptt_start;
+            fprintf(stderr, "[QEMU] %s(): cpu = %d: create physical package socket_id = 0x%lx\n", __func__, n, socket_id);
             build_processor_hierarchy_node(table_data,
                 (1 << 0), /* Physical package */
                 0, socket_id, NULL, priv_num);
@@ -2235,16 +2239,17 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             if (cpus->cpus[n].props.cluster_id != cluster_id) {
                 assert(cpus->cpus[n].props.cluster_id > cluster_id);
                 cluster_id = cpus->cpus[n].props.cluster_id;
-                fprintf(stderr, "[QEMU] %s(): cpu = %u cluster_id = 0x%lx\n", __func__, n, cluster_id);
                 core_id = -1;
                 priv_num = 0;
                 l3_offset = table_data->len - pptt_start;
                 /* L3 cache type structure */
                 if (CPUCaches && CPUCaches->l3_cache) {
+                    fprintf(stderr, "[QEMU] %s(): cpu = %d: create L3 cache @ 0x%x\n", __func__, n, l3_offset);
                     priv_num = 1;
                     build_cache_structure(table_data, 0, CPUCaches->l3_cache);
                 }
                 cluster_offset = table_data->len - pptt_start;
+                fprintf(stderr, "[QEMU] %s(): cpu = %d: create cluster id %lu @ 0x%x\n", __func__, n, cluster_id, cluster_offset);
                 build_processor_hierarchy_node(table_data,
                     (0 << 0), /* Not a physical package */
                     socket_offset, cluster_id, &l3_offset, priv_num);
@@ -2256,6 +2261,7 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
         if (CPUCaches) {
             /* L2 cache type structure */
             priv_rsrc[0] = table_data->len - pptt_start;
+            fprintf(stderr, "[QEMU] %s(): if(CPUCaches): priv_rsrc[0]: 0x%x\n", __func__, priv_rsrc[0]);
 
             /*
              * HACK: cluster 0 uses the first L2 cache controller and
@@ -2269,28 +2275,35 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
              * be broaden to support RISC-V too
              */
             if (cluster_id == 0) {
-                build_cache_structure(table_data, 0, CPUCaches->l2_cluster1_cache);
+                fprintf(stderr, "[QEMU] %s(): if(CPUCaches): create L2 for cluster 0: next_level = 0x%x\n", __func__, l3_offset);
+                build_cache_structure(table_data, l3_offset, CPUCaches->l2_cluster1_cache);
             } else {
-                build_cache_structure(table_data, 0, CPUCaches->l2_cluster2_cache);
+                fprintf(stderr, "[QEMU] %s(): if(CPUCaches): create L2 for cluster 1: next_level = 0x%x\n", __func__, l3_offset);
+                build_cache_structure(table_data, l3_offset, CPUCaches->l2_cluster2_cache);
             }
 
             /* L1d cache type structure */
             priv_rsrc[1] = table_data->len - pptt_start;
+            fprintf(stderr, "[QEMU] %s(): if(CPUCaches): priv_rsrc[1]: 0x%x\n", __func__, priv_rsrc[1]);
+            fprintf(stderr, "[QEMU] %s(): if(CPUCaches): create l1d cache for core\n", __func__);
             build_cache_structure(table_data, priv_rsrc[0],
                                   CPUCaches->l1d_cache);
 
             /* L1i cache type structure */
             priv_rsrc[2] = table_data->len - pptt_start;
+            fprintf(stderr, "[QEMU] %s(): if(CPUCaches): priv_rsrc[2]: 0x%x\n", __func__, priv_rsrc[2]);
+            fprintf(stderr, "[QEMU] %s(): if(CPUCaches): create l1i cache for core\n", __func__);
             build_cache_structure(table_data, priv_rsrc[0],
                                   CPUCaches->l1i_cache);
-
-            priv_num = 3;
+            priv_num = 2;
         }
         if (ms->smp.threads == 1) {
+            fprintf(stderr, "[QEMU] %s(): cpu %d: create processor node @ 0x%x with %d private resources @ 0x%x\n",
+                    __func__, n, cluster_offset, priv_num, priv_rsrc[1]);
             build_processor_hierarchy_node(table_data,
                 (1 << 1) | /* ACPI Processor ID valid */
                 (1 << 3),  /* Node is a Leaf */
-                cluster_offset, n, priv_rsrc, priv_num);
+                cluster_offset, n, &priv_rsrc[1], priv_num);
         } else {
             if (cpus->cpus[n].props.core_id != core_id) {
                 assert(cpus->cpus[n].props.core_id > core_id);
