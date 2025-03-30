@@ -1,6 +1,7 @@
 #!/bin/bash
 export LX=$HOME/dev/linux
-export BR=$HOME/dev/images
+export BR=$HOME/dev/buildroot/output/images
+#export BR=$HOME/dev/images
 export EDK=$HOME/dev/edk2
 build/qemu-system-riscv64 \
 	-M virt,pflash0=pflash0,pflash1=pflash1,aia=aplic-imsic  \
