@@ -286,7 +286,7 @@ static void build_rqsc(GArray *table_data,
 {
     int numCbqriControllers = 0;
     RQSC rqsc[10];                  /* Support for upto 10 CBQRI controllers */
-    int i = 0;
+    int i = 0, res1_id = 0;
 
     AcpiTable table = { .sig = "RQSC", .rev = 0, .oem_id = s->oem_id,
                         .oem_table_id = s->oem_table_id };
@@ -328,8 +328,19 @@ static void build_rqsc(GArray *table_data,
          * TODO: Similar plumbing still needs to be done to correlate
          * the memory controller to Proximity Domain in the SRAT table
          */
-        fprintf(stderr, "[QEMU] %s(): Controller %d: Resource ID 1 = 0x%lx\n", __func__, i, rqsc[i].mmio_base);
-        build_append_int_noprefix(table_data, rqsc[i].mmio_base, 4);        /* Resource ID 1 DWORD 1 CacheID or Proximity Domain */
+        res1_id = rqsc[i].mmio_base;
+        // psuedo hash to turn mmio address into an one byte id
+        res1_id &= 0xf000;
+        res1_id >>= 12;
+        if (rqsc[i].controllerType == 0) {
+            res1_id |= 0x10;
+            fprintf(stderr, "[QEMU] %s(): Ctrl %d:  cache: res1_id = 0x%x\n", __func__, i, res1_id);
+        } else {
+            res1_id |= 0x20;
+            fprintf(stderr, "[QEMU] %s(): Ctrl %d: memory: res1_id = 0x%x\n", __func__, i, res1_id);
+        }
+
+        build_append_int_noprefix(table_data, res1_id, 4);        /* Resource ID 1 DWORD 1 CacheID or Proximity Domain */
         build_append_int_noprefix(table_data, 0, 4);                        /* Resource ID 1 DWORD 2 Reserved */
         build_append_int_noprefix(table_data, 0, 4);                        /* Resrouce ID 2 */
     }
@@ -756,7 +767,7 @@ static void pptt_setup(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             .associativity = 4,
             .sets = 256,
             .attributes = 0x02,
-            .id = 0x1D,
+            .id = 0x100D, /* prefix L1 with 0x1000 to avoid conflicts */
         },
         .l1i_cache = &(CPUCacheInfo) {
             .type = INSTRUCTION_CACHE,
@@ -765,7 +776,7 @@ static void pptt_setup(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             .associativity = 4,
             .sets = 256,
             .attributes = 0x04,
-            .id = 0x1E,
+            .id = 0x100E, /* prefix L1 with 0x1000 to avoid conflicts */
         },
 
         /*
@@ -779,7 +790,7 @@ static void pptt_setup(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             .associativity = 12,
             .sets = 1000,
             .attributes = 0x0a,
-            .id = 0x4821000,
+            .id = 0x11, /* ( 0x4821000 & 0xf000 ) >> 12 | 0x10 */
         },
         .l2_cluster2_cache = &(CPUCacheInfo) {
             .type = UNIFIED_CACHE,
@@ -788,7 +799,7 @@ static void pptt_setup(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             .associativity = 12,
             .sets = 1000,
             .attributes = 0x0a,
-            .id = 0x4820000,
+            .id = 0x10, /* ( 0x4820000 & 0xf000 ) >> 12 | 0x10 */
         },
         .l3_cache = &(CPUCacheInfo) {
             .type = UNIFIED_CACHE,
@@ -797,8 +808,10 @@ static void pptt_setup(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             .associativity = 16,
             .sets = 4096,
             .attributes = 0x0a,
-            .id = 0x482b000,
+            .id = 0x1b, /* ( 0x482b000 & 0xf000 ) >> 12 | 0x10 */
         },
+
+
     };
 
     build_pptt(table_data, linker, ms, oem_id, oem_table_id,
