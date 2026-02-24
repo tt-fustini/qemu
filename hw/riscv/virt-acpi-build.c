@@ -375,10 +375,13 @@ static void build_rqsc(GArray *table_data,
          * TODO: Similar plumbing still needs to be done to correlate
          * the memory controller to Proximity Domain in the SRAT table
          */
-        fprintf(stderr, "[QEMU] %s(): Controller %d: Resource ID 1 = 0x%lx\n",
-                __func__, i, rqsc[i].mmio_base);
+        uint64_t offset = rqsc[i].mmio_base & 0x000F000;
+        uint64_t id = (offset >> 12) + 0x40;
+
+        fprintf(stderr, "[QEMU] %s(): Controller %d: Resource ID 1 = 0x%lx 0x%lx %ld\n",
+                __func__, i, rqsc[i].mmio_base, offset, id);
         /* Resource ID 1 DWORD 1 CacheID or Proximity Domain */
-        build_append_int_noprefix(table_data, rqsc[i].mmio_base, 4);
+        build_append_int_noprefix(table_data, id, 4);
         /* Resource ID 1 DWORD 2 Reserved */
         build_append_int_noprefix(table_data, 0, 4);
         /* Resrouce ID 2 */
