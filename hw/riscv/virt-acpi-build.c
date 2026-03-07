@@ -331,14 +331,14 @@ static void build_rqsc(GArray *table_data,
     build_append_int_noprefix(table_data, numCbqriControllers, 4);
 
     for (i = 0; i < numCbqriControllers; i++) {
-        fprintf(stderr, "[QEMU] %s(): Controller %d: Controller Type = %d\n",
+        fprintf(stderr, "\n[QEMU] %s(): Controller %d: Controller Type = %d\n",
                 __func__, i, rqsc[i].controllerType);
         /* Controller Type */
         build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);
         /* Reserved */
         build_append_int_noprefix(table_data, 0, 1);
         /* Length */
-        build_append_int_noprefix(table_data, 32, 2);
+        build_append_int_noprefix(table_data, 24 /* ctrl */ + 20 /* res */, 2);
         /* Controller register interface address */
         build_append_gas(table_data,
                 AML_AS_SYSTEM_MEMORY,
@@ -347,9 +347,11 @@ static void build_rqsc(GArray *table_data,
                 4,
                 rqsc[i].mmio_base);
         /* RCID Count */
-        build_append_int_noprefix(table_data, rqsc[i].rcidCount, 4);
+        fprintf(stderr, "[QEMU] %s(): Controller %d: rcidCount = %d\n", __func__, i, rqsc[i].rcidCount);
+        build_append_int_noprefix(table_data, rqsc[i].rcidCount, 2); /* fixed */
         /* MCID Count */
-        build_append_int_noprefix(table_data, rqsc[i].mcidCount, 4);
+        fprintf(stderr, "[QEMU] %s(): Controller %d: mcidCount = %d\n", __func__, i, rqsc[i].mcidCount);
+        build_append_int_noprefix(table_data, rqsc[i].mcidCount, 2); /* fixed */
         /* Controller Flags*/
         build_append_int_noprefix(table_data, 0, 2);
         /* Number of Resources hard coded to 1 for QEMU */
@@ -367,6 +369,8 @@ static void build_rqsc(GArray *table_data,
         /* Reserved */
         build_append_int_noprefix(table_data, 0, 1);
         /* Resource ID Type  - Setting to the same as Controller Type for now */
+        fprintf(stderr, "[QEMU] %s(): Controller %d: controllerType = 0x%x\n",
+                __func__, i, rqsc[i].controllerType);
         build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);
         /*
          * The AML code that generates that PPTT table uses the cache
@@ -378,14 +382,13 @@ static void build_rqsc(GArray *table_data,
         uint64_t offset = rqsc[i].mmio_base & 0x000F000;
         uint64_t id = (offset >> 12) + 0x40;
 
-        fprintf(stderr, "[QEMU] %s(): Controller %d: Resource ID 1 = 0x%lx 0x%lx %ld\n",
-                __func__, i, rqsc[i].mmio_base, offset, id);
+        fprintf(stderr, "[QEMU] %s(): Controller %d: ResID 1 = %lu [0x%lx]\n", __func__, i, id, id);
         /* Resource ID 1 DWORD 1 CacheID or Proximity Domain */
         build_append_int_noprefix(table_data, id, 4);
         /* Resource ID 1 DWORD 2 Reserved */
-        build_append_int_noprefix(table_data, 0, 4);
+        build_append_int_noprefix(table_data, 0x00, 4);
         /* Resrouce ID 2 */
-        build_append_int_noprefix(table_data, 0, 4);
+        build_append_int_noprefix(table_data, 0x00, 4);
     }
 
     acpi_table_end(linker, &table);
