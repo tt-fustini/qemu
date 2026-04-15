@@ -29,6 +29,7 @@
 #include "hw/core/qdev-properties.h"
 #include "hw/core/sysbus.h"
 #include "target/riscv/cpu.h"
+#include "qemu/timer.h"
 #include "hw/riscv/cbqri.h"
 
 /* Encodings of `AT` field */
@@ -353,8 +354,10 @@ static void riscv_cbqri_cc_write_mon_ctl(RiscvCbqriCapacityState *cc,
             if (atv && !is_valid_at(cc, at)) {
                 status = CC_MON_CTL_STATUS_INVAL_AT;
             } else {
+                /* Start with baseline occupancy: ~25% for MCID 0, less for others */
+                uint64_t base = (mcid == 0) ? cc->ncblks / 4 : 0;
                 cc->mon_counters[mcid].ctr_val =
-                    FIELD_DP64(0, CC_MON_CTR_VAL, INVALID, 1);
+                    FIELD_DP64(0, CC_MON_CTR_VAL, CTR, base);
                 cc->mon_counters[mcid].evt_id = evt_id;
                 cc->mon_counters[mcid].at = atv ? at : -1;
                 cc->mon_counters[mcid].active = true;
@@ -365,6 +368,25 @@ static void riscv_cbqri_cc_write_mon_ctl(RiscvCbqriCapacityState *cc,
         }
     } else if (op == CC_MON_OP_READ_COUNTER &&
                cc->supports_mon_op_read_counter) {
+        if (cc->mon_counters[mcid].active &&
+            cc->mon_counters[mcid].evt_id == CC_EVT_ID_Occupancy) {
+            /*
+             * Simulate cache occupancy: drift the counter up or down
+             * by a small amount on each read, clamped to [0, ncblks].
+             */
+            uint64_t cur = FIELD_EX64(cc->mon_counters[mcid].ctr_val,
+                                      CC_MON_CTR_VAL, CTR);
+            int delta = (int)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) >> 8) % 5
+                        - 2; /* -2..+2 */
+            int64_t next = (int64_t)cur + delta;
+            if (next < 0) {
+                next = 0;
+            } else if (next > cc->ncblks) {
+                next = cc->ncblks;
+            }
+            cc->mon_counters[mcid].ctr_val =
+                FIELD_DP64(0, CC_MON_CTR_VAL, CTR, (uint64_t)next);
+        }
         cc->cc_mon_ctr_val = cc->mon_counters[mcid].ctr_val;
         status = CC_MON_CTL_STATUS_SUCCESS;
     } else {
