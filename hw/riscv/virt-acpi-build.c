@@ -329,12 +329,42 @@ static void build_rqsc(GArray *table_data,
     build_append_int_noprefix(table_data, numCbqriControllers, 4);
 
     for (i = 0; i < numCbqriControllers; i++) {
+        uint8_t resource_type;
+        uint8_t resource_id_type;
+        uint32_t resource_id;
+        uint16_t resource_len;
+
+        if (rqsc[i].controllerType == 0) {
+            /* Capacity controller — cache resource */
+            resource_type = 0;     /* Cache */
+            resource_id_type = 0;  /* Processor Cache */
+            resource_len = 20;
+            /*
+             * Derive cache ID from the mmio_base page offset to match
+             * the CPUCacheInfo IDs used in the PPTT table.
+             */
+            uint64_t offset = rqsc[i].mmio_base & 0x000F000;
+            resource_id = (offset >> 12) + 0x40;
+        } else {
+            /* Bandwidth controller — memory resource */
+            resource_type = 1;     /* Memory */
+            resource_id_type = 1;  /* Memory Range */
+            resource_len = 28;     /* includes 8-byte Resource Specific Data */
+            /*
+             * Proximity Domain from SRAT. For UMA configurations (no
+             * NUMA nodes), all bandwidth controllers share domain 0.
+             * NUMA support would require mapping each bandwidth
+             * controller to its corresponding proximity domain.
+             */
+            resource_id = 0;
+        }
+
         /* Controller Type */
         build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);
         /* Reserved */
         build_append_int_noprefix(table_data, 0, 1);
-        /* Length */
-        build_append_int_noprefix(table_data, 24 /* ctrl */ + 20 /* res */, 2);
+        /* Length = 24 (controller header) + resource structure length */
+        build_append_int_noprefix(table_data, 24 + resource_len, 2);
         /* Controller register interface address */
         build_append_gas(table_data,
                 AML_AS_SYSTEM_MEMORY,
@@ -346,39 +376,35 @@ static void build_rqsc(GArray *table_data,
         build_append_int_noprefix(table_data, rqsc[i].rcidCount, 2);
         /* MCID Count */
         build_append_int_noprefix(table_data, rqsc[i].mcidCount, 2);
-        /* Controller Flags*/
+        /* Controller Flags */
         build_append_int_noprefix(table_data, 0, 2);
-        /* Number of Resources hard coded to 1 for QEMU */
+        /* Number of Resources */
         build_append_int_noprefix(table_data, 1, 2);
 
-        /* Resource Structure per Controller */
-        /* Resource Type  - Setting to the same as Controller Type for now */
-        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);
+        /* Resource Structure */
+        /* Resource Type */
+        build_append_int_noprefix(table_data, resource_type, 1);
         /* Reserved */
         build_append_int_noprefix(table_data, 0, 1);
         /* Length of Resource Structure */
-        build_append_int_noprefix(table_data, 20, 2);
+        build_append_int_noprefix(table_data, resource_len, 2);
         /* Resource Flags */
         build_append_int_noprefix(table_data, 0, 2);
         /* Reserved */
         build_append_int_noprefix(table_data, 0, 1);
-        /* Resource ID Type  - Setting to the same as Controller Type for now */
-        build_append_int_noprefix(table_data, rqsc[i].controllerType, 1);
-        /*
-         * Derive a resource ID from the mmio_base page offset so the RQSC
-         * table resource IDs match the CPUCacheInfo IDs used in the PPTT table.
-         *
-         * TODO: Similar plumbing still needs to be done to correlate
-         * the memory controller to Proximity Domain in the SRAT table
-         */
-        uint64_t offset = rqsc[i].mmio_base & 0x000F000;
-        uint64_t id = (offset >> 12) + 0x40;
-        /* Resource ID 1 DWORD 1 CacheID or Proximity Domain */
-        build_append_int_noprefix(table_data, id, 4);
-        /* Resource ID 1 DWORD 2 Reserved */
-        build_append_int_noprefix(table_data, 0x00, 4);
-        /* Resrouce ID 2 */
-        build_append_int_noprefix(table_data, 0x00, 4);
+        /* Resource ID Type */
+        build_append_int_noprefix(table_data, resource_id_type, 1);
+        /* Resource ID 1 (Cache ID or Proximity Domain) */
+        build_append_int_noprefix(table_data, resource_id, 4);
+        /* Resource ID 1 Reserved */
+        build_append_int_noprefix(table_data, 0, 4);
+        /* Resource ID 2 */
+        build_append_int_noprefix(table_data, 0, 4);
+
+        if (rqsc[i].controllerType == 1) {
+            /* Resource Specific Data: Bandwidth per Block (bytes/sec) */
+            build_append_int_noprefix(table_data, 0, 8);
+        }
     }
 
     acpi_table_end(linker, &table);
@@ -992,23 +1018,14 @@ static void pptt_setup(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             .attributes = 0x04,
             .id = 0x1E,
         },
-        .l2_cluster1_cache = &(CPUCacheInfo) {
+        .l2_cache = &(CPUCacheInfo) {
             .type = UNIFIED_CACHE,
             .size = 750 * KiB,
             .line_size = 64,
             .associativity = 12,
             .sets = 1000,
             .attributes = 0x0a,
-            .id = 64,
-        },
-        .l2_cluster2_cache = &(CPUCacheInfo) {
-            .type = UNIFIED_CACHE,
-            .size = 750 * KiB,
-            .line_size = 64,
-            .associativity = 12,
-            .sets = 1000,
-            .attributes = 0x0a,
-            .id = 65,
+            .id = 64, /* base ID; cluster N gets id = 64 + N */
         },
         .l3_cache = &(CPUCacheInfo) {
             .type = UNIFIED_CACHE,

@@ -2198,7 +2198,7 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
     uint32_t socket_offset = 0, cluster_offset = 0, core_offset = 0;
     uint32_t pptt_start = table_data->len;
     uint32_t root_offset;
-    uint32_t l3_offset = 0, priv_num = 0;
+    uint32_t l3_offset = 0, l2_offset = 0, priv_num = 0;
     uint32_t priv_rsrc[4] = {0};
     int n;
     /*
@@ -2229,16 +2229,6 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
      * created.
      */
     for (n = 0; n < cpus->len; n++) {
-        /*
-         * HACK: cluster_id is not set by the riscv arch so force setting it.
-         * Divide the cores between the number of clusters. For the CBQRI
-         * example, cores 0-3 are cluster 0 and cores 4-8 are cluster 1.
-         * The correct solution is for the riscv code to set cluster_id the
-         * same way the arm code is doing it.
-         */
-        cpus->cpus[n].props.cluster_id = (n / (ms->smp.cores * ms->smp.threads))
-                                          % ms->smp.clusters;
-
         if (cpus->cpus[n].props.socket_id != socket_id) {
             assert(cpus->cpus[n].props.socket_id > socket_id);
             socket_id = cpus->cpus[n].props.socket_id;
@@ -2267,6 +2257,13 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
                     priv_num = 1;
                     build_cache_structure(table_data, 0, CPUCaches->l3_cache);
                 }
+                /* L2 cache type structure — one per cluster */
+                if (CPUCaches && CPUCaches->l2_cache) {
+                    CPUCacheInfo l2 = *CPUCaches->l2_cache;
+                    l2.id = CPUCaches->l2_cache->id + cluster_id;
+                    l2_offset = table_data->len - pptt_start;
+                    build_cache_structure(table_data, l3_offset, &l2);
+                }
                 cluster_offset = table_data->len - pptt_start;
                 build_processor_hierarchy_node(table_data,
                     (0 << 0) | /* Not a physical package */
@@ -2278,36 +2275,14 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
         }
 
         if (CPUCaches) {
-            /* L2 cache type structure */
-            priv_rsrc[0] = table_data->len - pptt_start;
-
-            /*
-             * HACK: cluster 0 uses the first L2 cache controller and
-             * cluster 1 uses the second L2 cache controller. A more
-             * general solution is to make the L2 cache private to
-             * the cluster and not private to the core.
-             *
-             * This series seems to be the correct direction:
-             * https://lore.kernel.org/all/20250310162337.844-1-alireza.sanaee@huawei.com/
-             * but it is only adding support for ARM so it needs to
-             * be broaden to support RISC-V too
-             */
-            if (cluster_id == 0) {
-                build_cache_structure(table_data, l3_offset,
-                                      CPUCaches->l2_cluster1_cache);
-            } else {
-                build_cache_structure(table_data, l3_offset,
-                                      CPUCaches->l2_cluster2_cache);
-            }
-
             /* L1d cache type structure */
-            priv_rsrc[1] = table_data->len - pptt_start;
-            build_cache_structure(table_data, priv_rsrc[0],
+            priv_rsrc[0] = table_data->len - pptt_start;
+            build_cache_structure(table_data, l2_offset,
                                   CPUCaches->l1d_cache);
 
             /* L1i cache type structure */
-            priv_rsrc[2] = table_data->len - pptt_start;
-            build_cache_structure(table_data, priv_rsrc[0],
+            priv_rsrc[1] = table_data->len - pptt_start;
+            build_cache_structure(table_data, l2_offset,
                                   CPUCaches->l1i_cache);
             priv_num = 2;
         }
@@ -2315,7 +2290,7 @@ void build_pptt(GArray *table_data, BIOSLinker *linker, MachineState *ms,
             build_processor_hierarchy_node(table_data,
                 (1 << 1) | /* ACPI Processor ID valid */
                 (1 << 3),  /* Node is a Leaf */
-                cluster_offset, n, &priv_rsrc[1], priv_num);
+                cluster_offset, n, priv_rsrc, priv_num);
         } else {
             if (cpus->cpus[n].props.core_id != core_id) {
                 assert(cpus->cpus[n].props.core_id > core_id);

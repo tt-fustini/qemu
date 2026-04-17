@@ -250,8 +250,7 @@ typedef
 struct CPUCaches {
         CPUCacheInfo *l1d_cache;
         CPUCacheInfo *l1i_cache;
-        CPUCacheInfo *l2_cluster1_cache;
-        CPUCacheInfo *l2_cluster2_cache;
+        CPUCacheInfo *l2_cache;
         CPUCacheInfo *l3_cache;
 } CPUCaches;
 
