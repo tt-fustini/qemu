@@ -25,6 +25,7 @@
 #include "qemu/error-report.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
+#include "qemu/timer.h"
 #include "hw/core/qdev-properties.h"
 #include "hw/core/sysbus.h"
 #include "target/riscv/cpu.h"
@@ -296,6 +297,29 @@ static void riscv_cbqri_bc_write_mon_ctl(RiscvCbqriBandwidthState *bc,
         }
     } else if (op == BC_MON_OP_READ_COUNTER &&
                bc->supports_mon_op_read_counter) {
+        if (bc->mon_counters[mcid].active) {
+            /*
+             * Simulate monotonic memory-controller bandwidth accumulation.
+             * Real hardware would update CTR continuously as memory
+             * transactions retire with the configured MCID tag.  QEMU has
+             * no memory-traffic accounting, so we synthesise a forward-only
+             * drift based on the virtual clock.  Delta is in bytes, 4 KB
+             * (2^12) .. ~68 KB (~2^16), so any test doing two reads with
+             * even a little work between them will observe a non-zero
+             * delta without the counter exploding.
+             */
+            uint64_t cur = FIELD_EX64(bc->mon_counters[mcid].ctr_val,
+                                      BC_MON_CTR_VAL, CTR);
+            uint64_t ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+            uint64_t delta = 4096 + ((ns >> 10) & 0xffff);
+
+            /*
+             * FIELD_DP64 into a zeroed word truncates next to the
+             * 62-bit CTR field and implicitly clears INVALID and OVF.
+             */
+            bc->mon_counters[mcid].ctr_val =
+                FIELD_DP64(0, BC_MON_CTR_VAL, CTR, cur + delta);
+        }
         bc->bc_mon_ctr_val = bc->mon_counters[mcid].ctr_val;
         status = BC_MON_CTL_STATUS_SUCCESS;
     } else {
