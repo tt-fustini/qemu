@@ -318,7 +318,7 @@ static void build_rqsc(GArray *table_data,
     RQSC rqsc[10];
     int i = 0;
 
-    AcpiTable table = { .sig = "RQSC", .rev = 0, .oem_id = s->oem_id,
+    AcpiTable table = { .sig = "RQSC", .rev = 1, .oem_id = s->oem_id,
                         .oem_table_id = s->oem_table_id };
 
     acpi_table_begin(&table, table_data);
