@@ -248,6 +248,43 @@ static bool virt_has_cbqri_cc(RISCVVirtState *s)
     return false;
 }
 
+static void create_fdt_cbqri(RISCVVirtState *s, uint32_t l2_phandle)
+{
+    MachineState *ms = MACHINE(s);
+    BusChild *kid;
+
+    if (!s->platform_bus_dev || !l2_phandle) {
+        return;
+    }
+
+    QTAILQ_FOREACH(kid, &s->platform_bus_dev->parent_bus->children, sibling) {
+        DeviceState *dev = kid->child;
+        g_autofree char *name = NULL;
+        uint64_t base, size;
+        uint32_t rcid;
+
+        if (strcmp(object_get_typename(OBJECT(dev)),
+                   TYPE_RISCV_CBQRI_CC) != 0) {
+            continue;
+        }
+
+        base = object_property_get_uint(OBJECT(dev), "mmio_base",
+                                        &error_abort);
+        rcid = object_property_get_uint(OBJECT(dev), "max_rcids",
+                                        &error_abort);
+        size = memory_region_size(
+            sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 0));
+
+        name = g_strdup_printf("/soc/cache-controller@%" PRIx64, base);
+        qemu_fdt_add_subnode(ms->fdt, name);
+        qemu_fdt_setprop_string(ms->fdt, name, "compatible",
+                                "riscv,cbqri-capacity-controller");
+        qemu_fdt_setprop_sized_cells(ms->fdt, name, "reg", 2, base, 2, size);
+        qemu_fdt_setprop_cell(ms->fdt, name, "riscv,cbqri-rcid", rcid);
+        qemu_fdt_setprop_cell(ms->fdt, name, "riscv,cbqri-cache", l2_phandle);
+    }
+}
+
 static void create_fdt_socket_cpus(RISCVVirtState *s, int socket,
                                    char *clust_name, uint32_t *phandle,
                                    uint32_t *intc_phandles,
@@ -1190,6 +1227,8 @@ static void finalize_fdt(RISCVVirtState *s)
                        &irq_pcie_phandle, &irq_virtio_phandle,
                        &msi_pcie_phandle, &l2_phandle);
 
+    create_fdt_cbqri(s, l2_phandle);
+
     create_fdt_virtio(s, irq_virtio_phandle);
 
     if (virt_is_iommu_sys_enabled(s)) {
@@ -1204,8 +1243,6 @@ static void finalize_fdt(RISCVVirtState *s)
     create_fdt_uart(s, irq_mmio_phandle);
 
     create_fdt_rtc(s, irq_mmio_phandle);
-
-    (void)l2_phandle;
 }
 
 static void create_fdt(RISCVVirtState *s)
