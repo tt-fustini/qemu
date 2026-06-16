@@ -564,7 +564,7 @@ static void riscv_cbqri_bc_reset(DeviceState *dev)
     bc->bc_alloc_ctl = 0;
 }
 
-static Property riscv_cbqri_bc_properties[] = {
+static const Property riscv_cbqri_bc_properties[] = {
     DEFINE_PROP_UINT64("mmio_base", RiscvCbqriBandwidthState, mmio_base, 0),
     DEFINE_PROP_STRING("target", RiscvCbqriBandwidthState, target),
 
