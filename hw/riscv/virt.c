@@ -230,9 +230,28 @@ static void create_pcie_irq_map(RISCVVirtState *s, void *fdt, char *nodename,
                            0x1800, 0, 0, 0x7);
 }
 
+static bool virt_has_cbqri_cc(RISCVVirtState *s)
+{
+    BusChild *kid;
+
+    if (!s->platform_bus_dev) {
+        return false;
+    }
+
+    QTAILQ_FOREACH(kid, &s->platform_bus_dev->parent_bus->children, sibling) {
+        if (strcmp(object_get_typename(OBJECT(kid->child)),
+                   TYPE_RISCV_CBQRI_CC) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static void create_fdt_socket_cpus(RISCVVirtState *s, int socket,
                                    char *clust_name, uint32_t *phandle,
-                                   uint32_t *intc_phandles)
+                                   uint32_t *intc_phandles,
+                                   uint32_t l2_phandle)
 {
     int cpu;
     uint32_t cpu_phandle;
@@ -283,6 +302,24 @@ static void create_fdt_socket_cpus(RISCVVirtState *s, int socket,
         qemu_fdt_setprop_string(ms->fdt, cpu_name, "device_type", "cpu");
         riscv_socket_fdt_write_id(ms, cpu_name, socket);
         qemu_fdt_setprop_cell(ms->fdt, cpu_name, "phandle", cpu_phandle);
+
+        if (l2_phandle) {
+            /*
+             * Describe split L1 i/d caches on the hart. RISC-V cacheinfo only
+             * counts a cache leaf when the node carries a *-cache-size
+             * property, so the L1 sizes must be present for the kernel to
+             * build the hierarchy and reach the shared L2 below; without them
+             * cache leaf accounting and the L2's shared_cpu_map come out empty.
+             */
+            qemu_fdt_setprop_cell(ms->fdt, cpu_name, "i-cache-block-size", 64);
+            qemu_fdt_setprop_cell(ms->fdt, cpu_name, "i-cache-size", 0x8000);
+            qemu_fdt_setprop_cell(ms->fdt, cpu_name, "i-cache-sets", 128);
+            qemu_fdt_setprop_cell(ms->fdt, cpu_name, "d-cache-block-size", 64);
+            qemu_fdt_setprop_cell(ms->fdt, cpu_name, "d-cache-size", 0x8000);
+            qemu_fdt_setprop_cell(ms->fdt, cpu_name, "d-cache-sets", 128);
+            qemu_fdt_setprop_cell(ms->fdt, cpu_name, "next-level-cache",
+                                  l2_phandle);
+        }
 
         intc_phandles[cpu] = (*phandle)++;
 
@@ -735,7 +772,8 @@ static void create_fdt_sockets(RISCVVirtState *s,
                                uint32_t *irq_mmio_phandle,
                                uint32_t *irq_pcie_phandle,
                                uint32_t *irq_virtio_phandle,
-                               uint32_t *msi_pcie_phandle)
+                               uint32_t *msi_pcie_phandle,
+                               uint32_t *l2_phandle)
 {
     int socket, phandle_pos;
     MachineState *ms = MACHINE(s);
@@ -753,6 +791,28 @@ static void create_fdt_sockets(RISCVVirtState *s,
     qemu_fdt_setprop_cell(ms->fdt, "/cpus", "#address-cells", 0x1);
     qemu_fdt_add_subnode(ms->fdt, "/cpus/cpu-map");
 
+    /*
+     * A single shared L2 backs a CBQRI capacity controller; every hart points
+     * its next-level-cache here. This models one machine-wide L2, valid for
+     * the single-socket configurations this targets.
+     */
+    *l2_phandle = 0;
+    if (virt_has_cbqri_cc(s)) {
+        *l2_phandle = (*phandle)++;
+        qemu_fdt_add_subnode(ms->fdt, "/cpus/l2-cache");
+        qemu_fdt_setprop_string(ms->fdt, "/cpus/l2-cache", "compatible",
+                                "cache");
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l2-cache", "cache-level", 2);
+        qemu_fdt_setprop(ms->fdt, "/cpus/l2-cache", "cache-unified", NULL, 0);
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l2-cache", "cache-size",
+                              0xc00000);
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l2-cache", "cache-sets", 512);
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l2-cache", "cache-block-size",
+                              64);
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l2-cache", "phandle",
+                              *l2_phandle);
+    }
+
     intc_phandles = g_new0(uint32_t, ms->smp.cpus);
 
     phandle_pos = ms->smp.cpus;
@@ -764,7 +824,7 @@ static void create_fdt_sockets(RISCVVirtState *s,
         qemu_fdt_add_subnode(ms->fdt, clust_name);
 
         create_fdt_socket_cpus(s, socket, clust_name, phandle,
-                               &intc_phandles[phandle_pos]);
+                               &intc_phandles[phandle_pos], *l2_phandle);
 
         create_fdt_socket_memory(s, socket);
 
@@ -1124,10 +1184,11 @@ static void finalize_fdt(RISCVVirtState *s)
     uint32_t phandle = 1, irq_mmio_phandle = 1, msi_pcie_phandle = 1;
     uint32_t irq_pcie_phandle = 1, irq_virtio_phandle = 1;
     uint32_t iommu_sys_phandle = 1;
+    uint32_t l2_phandle = 0;
 
     create_fdt_sockets(s, &phandle, &irq_mmio_phandle,
                        &irq_pcie_phandle, &irq_virtio_phandle,
-                       &msi_pcie_phandle);
+                       &msi_pcie_phandle, &l2_phandle);
 
     create_fdt_virtio(s, irq_virtio_phandle);
 
@@ -1143,6 +1204,8 @@ static void finalize_fdt(RISCVVirtState *s)
     create_fdt_uart(s, irq_mmio_phandle);
 
     create_fdt_rtc(s, irq_mmio_phandle);
+
+    (void)l2_phandle;
 }
 
 static void create_fdt(RISCVVirtState *s)
