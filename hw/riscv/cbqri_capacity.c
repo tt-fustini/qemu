@@ -628,7 +628,7 @@ static void riscv_cbqri_cc_reset(DeviceState *dev)
     }
 }
 
-static Property riscv_cbqri_cc_properties[] = {
+static const Property riscv_cbqri_cc_properties[] = {
     DEFINE_PROP_UINT64("mmio_base", RiscvCbqriCapacityState, mmio_base, 0),
     DEFINE_PROP_STRING("target", RiscvCbqriCapacityState, target),
 
