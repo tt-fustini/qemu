@@ -128,6 +128,7 @@ typedef struct RiscvCbqriCapacityState {
     uint16_t nb_rcids;
 
     uint16_t ncblks;
+    uint8_t cache_level;
 
     bool supports_at_data;
     bool supports_at_code;
@@ -583,6 +584,11 @@ static void riscv_cbqri_cc_realize(DeviceState *dev, Error **errp)
         return;
     }
 
+    if (cc->cache_level != 2 && cc->cache_level != 3) {
+        error_setg(errp, "cache_level must be 2 or 3");
+        return;
+    }
+
     assert(cc->mon_counters == NULL);
     cc->mon_counters = g_new0(MonitorCounter, cc->nb_mcids);
 
@@ -635,6 +641,8 @@ static const Property riscv_cbqri_cc_properties[] = {
     DEFINE_PROP_UINT16("max_mcids", RiscvCbqriCapacityState, nb_mcids, 256),
     DEFINE_PROP_UINT16("max_rcids", RiscvCbqriCapacityState, nb_rcids, 64),
     DEFINE_PROP_UINT16("ncblks", RiscvCbqriCapacityState, ncblks, 16),
+    DEFINE_PROP_UINT8("cache_level", RiscvCbqriCapacityState,
+                      cache_level, 2),
 
     DEFINE_PROP_BOOL("at_data", RiscvCbqriCapacityState,
                      supports_at_data, true),

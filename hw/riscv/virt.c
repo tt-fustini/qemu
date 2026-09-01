@@ -250,7 +250,30 @@ static bool virt_has_cbqri_cc(RISCVVirtState *s)
     return false;
 }
 
-static void create_fdt_cbqri(RISCVVirtState *s, uint32_t l2_phandle)
+static bool virt_has_cbqri_cc_at_l3(RISCVVirtState *s)
+{
+    BusChild *kid;
+
+    if (!s->platform_bus_dev) {
+        return false;
+    }
+
+    QTAILQ_FOREACH(kid, &s->platform_bus_dev->parent_bus->children, sibling) {
+        if (strcmp(object_get_typename(OBJECT(kid->child)),
+                   TYPE_RISCV_CBQRI_CC) != 0) {
+            continue;
+        }
+        if (object_property_get_uint(OBJECT(kid->child), "cache_level",
+                                     &error_abort) == 3) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void create_fdt_cbqri(RISCVVirtState *s, uint32_t l2_phandle,
+                             uint32_t l3_phandle)
 {
     MachineState *ms = MACHINE(s);
     BusChild *kid;
@@ -263,7 +286,8 @@ static void create_fdt_cbqri(RISCVVirtState *s, uint32_t l2_phandle)
         DeviceState *dev = kid->child;
         g_autofree char *name = NULL;
         uint64_t base, size;
-        uint32_t rcid;
+        uint32_t rcid, cache_phandle;
+        uint8_t level;
 
         if (strcmp(object_get_typename(OBJECT(dev)),
                    TYPE_RISCV_CBQRI_CC) != 0) {
@@ -274,6 +298,9 @@ static void create_fdt_cbqri(RISCVVirtState *s, uint32_t l2_phandle)
                                         &error_abort);
         rcid = object_property_get_uint(OBJECT(dev), "max_rcids",
                                         &error_abort);
+        level = object_property_get_uint(OBJECT(dev), "cache_level",
+                                         &error_abort);
+        cache_phandle = (level == 3 && l3_phandle) ? l3_phandle : l2_phandle;
         size = memory_region_size(
             sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 0));
 
@@ -283,7 +310,8 @@ static void create_fdt_cbqri(RISCVVirtState *s, uint32_t l2_phandle)
                                 "riscv,cbqri-capacity-controller");
         qemu_fdt_setprop_sized_cells(ms->fdt, name, "reg", 2, base, 2, size);
         qemu_fdt_setprop_cell(ms->fdt, name, "riscv,cbqri-rcid", rcid);
-        qemu_fdt_setprop_cell(ms->fdt, name, "riscv,cbqri-cache", l2_phandle);
+        qemu_fdt_setprop_cell(ms->fdt, name, "riscv,cbqri-cache",
+                              cache_phandle);
     }
 }
 
@@ -653,7 +681,8 @@ static void create_fdt_sockets(RISCVVirtState *s,
                                uint32_t *irq_pcie_phandle,
                                uint32_t *irq_virtio_phandle,
                                uint32_t *msi_pcie_phandle,
-                               uint32_t *l2_phandle)
+                               uint32_t *l2_phandle,
+                               uint32_t *l3_phandle)
 {
     int socket, phandle_pos;
     MachineState *ms = MACHINE(s);
@@ -688,6 +717,29 @@ static void create_fdt_sockets(RISCVVirtState *s,
                               64);
         qemu_fdt_setprop_cell(ms->fdt, "/cpus/l2-cache", "phandle",
                               *l2_phandle);
+    }
+
+    /*
+     * A controller declared with cache_level=3 needs a real L3 above the
+     * shared L2, so cacheinfo reports a level 3 for every hart.
+     */
+    *l3_phandle = 0;
+    if (*l2_phandle && virt_has_cbqri_cc_at_l3(s)) {
+        *l3_phandle = (*phandle)++;
+        qemu_fdt_add_subnode(ms->fdt, "/cpus/l3-cache");
+        qemu_fdt_setprop_string(ms->fdt, "/cpus/l3-cache", "compatible",
+                                "cache");
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l3-cache", "cache-level", 3);
+        qemu_fdt_setprop(ms->fdt, "/cpus/l3-cache", "cache-unified", NULL, 0);
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l3-cache", "cache-size",
+                              0x1800000);
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l3-cache", "cache-sets", 2048);
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l3-cache", "cache-block-size",
+                              64);
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l3-cache", "phandle",
+                              *l3_phandle);
+        qemu_fdt_setprop_cell(ms->fdt, "/cpus/l2-cache", "next-level-cache",
+                              *l3_phandle);
     }
 
     intc_phandles = g_new0(uint32_t, ms->smp.cpus);
@@ -1098,13 +1150,13 @@ static void finalize_fdt(RISCVVirtState *s)
     uint32_t phandle = 1, irq_mmio_phandle = 1, msi_pcie_phandle = 1;
     uint32_t irq_pcie_phandle = 1, irq_virtio_phandle = 1;
     uint32_t iommu_sys_phandle = 1;
-    uint32_t l2_phandle = 0;
+    uint32_t l2_phandle = 0, l3_phandle = 0;
 
     create_fdt_sockets(s, &phandle, &irq_mmio_phandle,
                        &irq_pcie_phandle, &irq_virtio_phandle,
-                       &msi_pcie_phandle, &l2_phandle);
+                       &msi_pcie_phandle, &l2_phandle, &l3_phandle);
 
-    create_fdt_cbqri(s, l2_phandle);
+    create_fdt_cbqri(s, l2_phandle, l3_phandle);
 
     create_fdt_virtio(s, irq_virtio_phandle);
 
