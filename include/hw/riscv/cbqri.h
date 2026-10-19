@@ -11,8 +11,8 @@
 
 #include "qemu/typedefs.h"
 
-#define RISCV_CBQRI_VERSION_MAJOR   0
-#define RISCV_CBQRI_VERSION_MINOR   1
+#define RISCV_CBQRI_VERSION_MAJOR   1
+#define RISCV_CBQRI_VERSION_MINOR   0
 
 #define TYPE_RISCV_CBQRI_CC         "riscv.cbqri.capacity"
 
